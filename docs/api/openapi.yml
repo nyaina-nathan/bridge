@@ -16,9 +16,11 @@ info:
     - Every endpoint except `register`, `login` and `refresh` requires a valid
       `access_token` cookie, otherwise `401`.
     - The refresh cookie is scoped to `/api/auth`, so it is only sent to the auth endpoints.
-    - Refresh tokens rotate: each `POST /auth/refresh` revokes the old token and sets a new
-      one. If a revoked token is reused, all of that user's tokens are revoked and the API
-      returns `401`.
+    - `POST /auth/refresh` always sets a new `access_token`. The refresh token is
+      rotated (the old row is revoked and a new cookie is set) only when less than
+      24 hours remain before its 30-day expiry; otherwise the existing refresh token
+      is kept. If a revoked token is reused, all of that user's tokens are revoked and
+      the API returns `401`.
     - Cross-site deployments use `SameSite=None; Secure` plus CORS with
       `credentials: include`, an allowed-origin list, and CSRF protection (for example a
       custom header check).
@@ -183,16 +185,20 @@ paths:
       tags:
         - Auth
       operationId: refreshTokens
-      summary: Rotate tokens
+      summary: Refresh the access token
       description: |
-        Reads the `refresh_token` cookie, revokes it, and sets a new `access_token`
-        and `refresh_token`. Reusing a revoked token revokes all of that user's
-        tokens and returns `401`.
+        Reads the `refresh_token` cookie and sets a new `access_token`. The refresh
+        token is rotated only when less than 24 hours remain before its 30-day
+        expiry: in that case the old row is revoked and a new `refresh_token` cookie
+        is set. Otherwise the existing refresh token is left untouched.
+        Reusing a revoked token revokes all of that user's tokens and returns `401`.
       security:
         - refreshTokenCookie: []
       responses:
         '204':
-          description: Tokens rotated. New auth cookies are set.
+          description: |
+            Access token refreshed. Both cookies are set when the refresh token was
+            rotated; otherwise only `access_token` is set.
           headers:
             Set-Cookie:
               $ref: '#/components/headers/SetCookie'
@@ -827,7 +833,7 @@ components:
       description: |
         Opaque random string whose hash is stored in `refresh_tokens`.
         `HttpOnly; Secure; SameSite=Lax; Path=/api/auth`; lifetime 30 days.
-        Rotated on every refresh.
+        Rotated automatically when less than 24 hours remain before expiry.
   parameters:
     ConflictId:
       name: conflictId
@@ -840,8 +846,8 @@ components:
   headers:
     SetCookie:
       description: |
-        Sets `access_token` (and, on auth endpoints, `refresh_token`) with
-        `HttpOnly; Secure; SameSite=Lax`. The refresh cookie is scoped to
+        Sets `access_token` and, when the refresh token was rotated, `refresh_token`,
+        with `HttpOnly; Secure; SameSite=Lax`. The refresh cookie is scoped to
         `Path=/api/auth`. Multiple `Set-Cookie` headers may be returned.
       schema:
         type: string

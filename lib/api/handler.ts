@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { unstable_rethrow } from "next/navigation";
 
 import { ApiError, isApiError } from "./errors";
 
@@ -36,6 +37,10 @@ export function withErrorHandling<TParams = Record<string, string>>(
     try {
       return await handler(request, context);
     } catch (error) {
+      // Let Next.js control-flow errors (prerender bailouts, redirects,
+      // notFound) propagate instead of turning them into a 500.
+      unstable_rethrow(error);
+
       if (isApiError(error)) {
         return NextResponse.json(error.toJSON(), {
           status: error.status,

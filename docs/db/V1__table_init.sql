@@ -22,7 +22,8 @@ CREATE TABLE users (
 
 -- Refresh tokens (opaque random string sent in an HttpOnly cookie).
 -- Only the SHA-256 hash is stored, never the raw token.
--- Rotation: every refresh revokes the old row and inserts a new one.
+-- Rotation: when less than 24 hours remain before expiry, a refresh revokes
+-- the old row and inserts a new one; otherwise the row is left untouched.
 -- If a revoked token is presented again, revoke all of that user's tokens.
 -- The access JWT is stateless and is NOT stored.
 CREATE TABLE refresh_tokens (
