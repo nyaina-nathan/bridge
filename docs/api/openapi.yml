@@ -1,0 +1,1465 @@
+openapi: 3.1.0
+info:
+  title: Couple Conflict Mediator API
+  version: 0.1.0
+  summary: MVP API for mediated conflict resolution between two partners.
+  description: |
+    Base path: `/api`. JSON everywhere. IDs are UUIDs, timestamps are ISO-8601 UTC.
+
+    ## Auth (cookies)
+
+    | Cookie | Content | Flags | Lifetime |
+    |---|---|---|---|
+    | `access_token` | JWT (`sub` = user id, `coupleId`, `exp`) | `HttpOnly; Secure; SameSite=Lax; Path=/` | 15 min |
+    | `refresh_token` | opaque random string (hash stored in `refresh_tokens`) | `HttpOnly; Secure; SameSite=Lax; Path=/api/auth` | 30 days |
+
+    - Every endpoint except `register`, `login` and `refresh` requires a valid
+      `access_token` cookie, otherwise `401`.
+    - The refresh cookie is scoped to `/api/auth`, so it is only sent to the auth endpoints.
+    - Refresh tokens rotate: each `POST /auth/refresh` revokes the old token and sets a new
+      one. If a revoked token is reused, all of that user's tokens are revoked and the API
+      returns `401`.
+    - Cross-site deployments use `SameSite=None; Secure` plus CORS with
+      `credentials: include`, an allowed-origin list, and CSRF protection (for example a
+      custom header check).
+    - Frontend flow: on `401` from any endpoint, call `POST /auth/refresh` once, then retry
+      the original request. If refresh fails, go to login.
+
+    ## Errors
+
+    All errors share one shape:
+
+    ```json
+    { "error": { "code": "CONFLICT_NOT_FOUND", "message": "Conflict not found" } }
+    ```
+
+    | Status | When |
+    |---|---|
+    | 400 | Validation error (`code`: `VALIDATION_ERROR`, optional `fields`) |
+    | 401 | Missing/expired access token, bad credentials, bad refresh token |
+    | 403 | Resource belongs to another couple, or action not allowed in this state |
+    | 404 | Not found (also used when a resource belongs to another couple) |
+    | 409 | Email already used, invalid state transition |
+    | 429 | Rate limited (important on AI endpoints) |
+
+    ## Authorization rule
+
+    A user can only access conflicts where `conflict.couple_id == user.couple_id`.
+    Private messages are only readable by their author.
+
+    ## Not in the MVP (v2)
+
+    Solutions and votes, check-in reminders for `later` conflicts, pattern tracking,
+    password reset, email verification, and SSE streaming for AI replies.
+servers:
+  - url: /api
+    description: API base path
+tags:
+  - name: Auth
+    description: Registration, login, token rotation, logout and current user.
+  - name: Conflicts
+    description: Create, list, inspect and close conflicts.
+  - name: Messages
+    description: The caller's private chat with the AI (step 1).
+  - name: Perspective
+    description: Summaries, partner views and the consent gate (steps 1-2).
+  - name: Feelings
+    description: Share how the partner's view made you feel (step 3).
+security:
+  - accessTokenCookie: []
+paths:
+  /auth/register:
+    post:
+      tags:
+        - Auth
+      operationId: register
+      summary: Create a user
+      description: |
+        Creates a user. Without `inviteCode`, a new couple is created. With
+        `inviteCode`, the user joins that couple (max 2 members). Sets both cookies.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            examples:
+              newCouple:
+                summary: Register and create a new couple
+                value:
+                  displayName: Alex
+                  email: alex@example.com
+                  password: at-least-8-chars
+              joinCouple:
+                summary: Register and join a couple with an invite code
+                value:
+                  displayName: Sam
+                  email: sam@example.com
+                  password: at-least-8-chars
+                  inviteCode: K7M2QX
+      responses:
+        '201':
+          description: User and couple created or joined. Both auth cookies are set.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSession'
+              examples:
+                newCouple:
+                  summary: A newly created couple
+                  value:
+                    user:
+                      id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      displayName: Alex
+                      email: alex@example.com
+                    couple:
+                      id: 8f14e45f-ceea-467f-a8c1-0d3f9a2b6c11
+                      inviteCode: K7M2QX
+                      members:
+                        - id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                          displayName: Alex
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /auth/login:
+    post:
+      tags:
+        - Auth
+      operationId: login
+      summary: Log in
+      description: Validates credentials and sets both auth cookies.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            examples:
+              credentials:
+                summary: Email and password
+                value:
+                  email: alex@example.com
+                  password: at-least-8-chars
+      responses:
+        '200':
+          description: Logged in. Same body as `GET /auth/me`.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSession'
+              examples:
+                session:
+                  summary: Current user and couple
+                  value:
+                    user:
+                      id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      displayName: Alex
+                      email: alex@example.com
+                    couple:
+                      id: 8f14e45f-ceea-467f-a8c1-0d3f9a2b6c11
+                      inviteCode: K7M2QX
+                      members:
+                        - id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                          displayName: Alex
+                        - id: 9b2f5c1d-3a4e-4f6b-8c7d-1e2f3a4b5c6d
+                          displayName: Sam
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /auth/refresh:
+    post:
+      tags:
+        - Auth
+      operationId: refreshTokens
+      summary: Rotate tokens
+      description: |
+        Reads the `refresh_token` cookie, revokes it, and sets a new `access_token`
+        and `refresh_token`. Reusing a revoked token revokes all of that user's
+        tokens and returns `401`.
+      security:
+        - refreshTokenCookie: []
+      responses:
+        '204':
+          description: Tokens rotated. New auth cookies are set.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetCookie'
+        '401':
+          description: Missing, expired, revoked or unknown refresh token. Cookies are cleared.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidRefreshToken:
+                  summary: Refresh token is no longer valid
+                  value:
+                    error:
+                      code: INVALID_REFRESH_TOKEN
+                      message: Refresh token is missing, expired or revoked
+  /auth/logout:
+    post:
+      tags:
+        - Auth
+      operationId: logout
+      summary: Log out
+      description: Revokes the current refresh token and clears both cookies.
+      responses:
+        '204':
+          description: Logged out. Auth cookies are cleared.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetCookie'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /auth/me:
+    get:
+      tags:
+        - Auth
+      operationId: getMe
+      summary: Current user and couple
+      description: |
+        Returns the authenticated user and their couple. If the partner has not
+        joined yet, `members` has one entry.
+      responses:
+        '200':
+          description: Current user and couple.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSession'
+              examples:
+                bothMembers:
+                  summary: Partner has joined
+                  value:
+                    user:
+                      id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      displayName: Alex
+                      email: alex@example.com
+                    couple:
+                      id: 8f14e45f-ceea-467f-a8c1-0d3f9a2b6c11
+                      inviteCode: K7M2QX
+                      members:
+                        - id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                          displayName: Alex
+                        - id: 9b2f5c1d-3a4e-4f6b-8c7d-1e2f3a4b5c6d
+                          displayName: Sam
+                waitingForPartner:
+                  summary: Partner has not joined yet
+                  value:
+                    user:
+                      id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      displayName: Alex
+                      email: alex@example.com
+                    couple:
+                      id: 8f14e45f-ceea-467f-a8c1-0d3f9a2b6c11
+                      inviteCode: K7M2QX
+                      members:
+                        - id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                          displayName: Alex
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /conflicts:
+    post:
+      tags:
+        - Conflicts
+      operationId: createConflict
+      summary: Start a conflict
+      description: Creates a new disagreement in the caller's couple.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateConflictRequest'
+            examples:
+              dishes:
+                summary: A new conflict
+                value:
+                  title: Dishes again
+      responses:
+        '201':
+          description: Conflict created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conflict'
+              examples:
+                created:
+                  summary: Newly created conflict
+                  value:
+                    id: 5c2d3b4a-6e7f-4a8b-9c0d-1e2f3a4b5c6d
+                    title: Dishes again
+                    status: collecting
+                    outcome: null
+                    flagged: false
+                    createdBy: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    createdAt: '2026-10-31T10:00:00Z'
+                    closedAt: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    get:
+      tags:
+        - Conflicts
+      operationId: listConflicts
+      summary: List conflicts
+      description: Lists the couple's conflicts, newest first.
+      responses:
+        '200':
+          description: The couple's conflicts, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConflictList'
+              examples:
+                list:
+                  summary: One conflict in feedback
+                  value:
+                    items:
+                      - id: 5c2d3b4a-6e7f-4a8b-9c0d-1e2f3a4b5c6d
+                        title: Dishes again
+                        status: feedback
+                        outcome: null
+                        createdAt: '2026-10-31T10:00:00Z'
+                        closedAt: null
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /conflicts/{conflictId}:
+    parameters:
+      - $ref: '#/components/parameters/ConflictId'
+    get:
+      tags:
+        - Conflicts
+      operationId: getConflict
+      summary: Get a conflict with progress
+      description: |
+        One conflict plus a progress overview for both people. No private content
+        (messages, summaries or partner views) is included.
+      responses:
+        '200':
+          description: Conflict and progress overview.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConflictDetail'
+              examples:
+                collecting:
+                  summary: Conflict still collecting perspectives
+                  value:
+                    id: 5c2d3b4a-6e7f-4a8b-9c0d-1e2f3a4b5c6d
+                    title: Dishes again
+                    status: collecting
+                    outcome: null
+                    flagged: false
+                    createdBy: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    createdAt: '2026-10-31T10:00:00Z'
+                    closedAt: null
+                    progress:
+                      me:
+                        hasSummary: true
+                        approved: false
+                        feelingsShared: false
+                      partner:
+                        hasSummary: true
+                        approved: true
+                        feelingsShared: false
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /conflicts/{conflictId}/close:
+    parameters:
+      - $ref: '#/components/parameters/ConflictId'
+    post:
+      tags:
+        - Conflicts
+      operationId: closeConflict
+      summary: Close a conflict with an outcome (step 5)
+      description: Allowed once the conflict status is `feedback`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CloseConflictRequest'
+            examples:
+              resolved:
+                summary: Mark the conflict resolved
+                value:
+                  outcome: resolved
+              later:
+                summary: Revisit the conflict later
+                value:
+                  outcome: later
+              unsolvable:
+                summary: Accept the conflict as unsolvable
+                value:
+                  outcome: unsolvable
+      responses:
+        '200':
+          description: The updated conflict.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conflict'
+              examples:
+                closed:
+                  summary: Conflict closed as resolved
+                  value:
+                    id: 5c2d3b4a-6e7f-4a8b-9c0d-1e2f3a4b5c6d
+                    title: Dishes again
+                    status: closed
+                    outcome: resolved
+                    flagged: false
+                    createdBy: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    createdAt: '2026-10-31T10:00:00Z'
+                    closedAt: '2026-10-31T10:40:00Z'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /conflicts/{conflictId}/messages:
+    parameters:
+      - $ref: '#/components/parameters/ConflictId'
+    get:
+      tags:
+        - Messages
+      operationId: listMessages
+      summary: My private chat
+      description: Returns only the caller's private thread with the AI.
+      responses:
+        '200':
+          description: The caller's private messages, oldest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageList'
+              examples:
+                thread:
+                  summary: A short private thread
+                  value:
+                    items:
+                      - id: 1
+                        role: user
+                        content: He left the dishes again...
+                        createdAt: '2026-10-31T10:01:00Z'
+                      - id: 2
+                        role: assistant
+                        content: That sounds frustrating. What did you expect...
+                        createdAt: '2026-10-31T10:01:03Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags:
+        - Messages
+      operationId: sendMessage
+      summary: Send a message and receive the AI reply
+      description: |
+        Non-streaming for the MVP. If the AI detects safety signals, the conflict
+        gets `flagged = true` and `safetyNotice` contains support guidance for the
+        UI to display prominently.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+            examples:
+              message:
+                summary: A message to the AI
+                value:
+                  content: He left the dishes again and I was already tired.
+      responses:
+        '201':
+          description: The stored user message and the AI reply.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendMessageResponse'
+              examples:
+                normal:
+                  summary: Normal reply
+                  value:
+                    userMessage:
+                      id: 3
+                      role: user
+                      content: He left the dishes again and I was already tired.
+                      createdAt: '2026-10-31T10:02:00Z'
+                    assistantMessage:
+                      id: 4
+                      role: assistant
+                      content: It sounds like the dishes were the last straw after a long day.
+                      createdAt: '2026-10-31T10:02:03Z'
+                    safetyNotice: null
+                safetyFlagged:
+                  summary: Safety signal detected
+                  value:
+                    userMessage:
+                      id: 5
+                      role: user
+                      content: I am scared of how angry I get.
+                      createdAt: '2026-10-31T10:05:00Z'
+                    assistantMessage:
+                      id: 6
+                      role: assistant
+                      content: Thank you for sharing that. Your safety matters.
+                      createdAt: '2026-10-31T10:05:03Z'
+                    safetyNotice:
+                      message: If you feel unsafe, consider reaching out to a trusted person or local support service.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /conflicts/{conflictId}/perspective:
+    parameters:
+      - $ref: '#/components/parameters/ConflictId'
+    get:
+      tags:
+        - Perspective
+      operationId: getPerspective
+      summary: My perspective
+      description: |
+        Returns the caller's perspective for this conflict. All fields are `null`
+        until created.
+      responses:
+        '200':
+          description: The caller's perspective.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Perspective'
+              examples:
+                empty:
+                  summary: Nothing created yet
+                  value:
+                    summary: null
+                    partnerView: null
+                    feelings: null
+                    approvedAt: null
+                    feelingsSharedAt: null
+                drafted:
+                  summary: Summary and partner view drafted
+                  value:
+                    summary: I felt overwhelmed when...
+                    partnerView: She had a long day and the dishes felt like one more thing...
+                    feelings: null
+                    approvedAt: null
+                    feelingsSharedAt: null
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags:
+        - Perspective
+      operationId: updatePerspective
+      summary: Edit my summary
+      description: |
+        Edits the summary by hand. Clears `partnerView` and approval, since the
+        content changed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePerspectiveRequest'
+            examples:
+              edited:
+                summary: Hand-edited summary
+                value:
+                  summary: Edited text...
+      responses:
+        '200':
+          description: The updated perspective.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Perspective'
+              examples:
+                updated:
+                  summary: Summary updated, approval cleared
+                  value:
+                    summary: Edited text...
+                    partnerView: null
+                    feelings: null
+                    approvedAt: null
+                    feelingsSharedAt: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /conflicts/{conflictId}/perspective/summary/generate:
+    parameters:
+      - $ref: '#/components/parameters/ConflictId'
+    post:
+      tags:
+        - Perspective
+      operationId: generateSummary
+      summary: AI drafts my summary
+      description: |
+        The AI drafts `summary` from the caller's private chat. Overwrites the
+        previous summary, clears `partnerView`, and clears approval.
+      responses:
+        '200':
+          description: The generated summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SummaryResponse'
+              examples:
+                generated:
+                  summary: Generated summary
+                  value:
+                    summary: I felt overwhelmed when...
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /conflicts/{conflictId}/perspective/partner-view/generate:
+    parameters:
+      - $ref: '#/components/parameters/ConflictId'
+    post:
+      tags:
+        - Perspective
+      operationId: generatePartnerView
+      summary: AI reframes my summary for my partner
+      description: |
+        Step 2. Overwrites `partnerView` and clears approval. Nothing is visible to
+        the partner yet.
+      responses:
+        '200':
+          description: The generated partner view.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerViewResponse'
+              examples:
+                generated:
+                  summary: Generated partner view
+                  value:
+                    partnerView: She had a long day and...
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /conflicts/{conflictId}/perspective/approve:
+    parameters:
+      - $ref: '#/components/parameters/ConflictId'
+    post:
+      tags:
+        - Perspective
+      operationId: approvePerspective
+      summary: Approve what my partner sees
+      description: |
+        Approves exactly the `partnerView` the partner will see and sets
+        `approvedAt`. When both people have approved, the conflict moves from
+        `collecting` to `feedback`.
+      responses:
+        '200':
+          description: Approval recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApproveResponse'
+              examples:
+                waitingForPartner:
+                  summary: Partner has not approved yet
+                  value:
+                    approvedAt: '2026-10-31T10:20:00Z'
+                    conflictStatus: collecting
+                bothApproved:
+                  summary: Both partners approved
+                  value:
+                    approvedAt: '2026-10-31T10:20:00Z'
+                    conflictStatus: feedback
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /conflicts/{conflictId}/partner-perspective:
+    parameters:
+      - $ref: '#/components/parameters/ConflictId'
+    get:
+      tags:
+        - Perspective
+      operationId: getPartnerPerspective
+      summary: Partner's approved view and feelings
+      description: |
+        What the partner chose to share. Returns only `partnerView` (after their
+        approval) and `feelings` (after they shared them). Never their summary or
+        chat. Visible only when the conflict status is `feedback` or `closed`,
+        which prevents either person from reading the other's version before both
+        have committed to theirs.
+      responses:
+        '200':
+          description: Partner perspective availability.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnerPerspective'
+              examples:
+                notAvailable:
+                  summary: Not available yet
+                  value:
+                    available: false
+                available:
+                  summary: Partner view available, feelings not shared yet
+                  value:
+                    available: true
+                    partnerView: He had a long day and...
+                    approvedAt: '2026-10-31T10:18:00Z'
+                    feelings: null
+                    feelingsSharedAt: null
+                withFeelings:
+                  summary: Partner view and feelings available
+                  value:
+                    available: true
+                    partnerView: He had a long day and...
+                    approvedAt: '2026-10-31T10:18:00Z'
+                    feelings: I did not realize how exhausted he was.
+                    feelingsSharedAt: '2026-10-31T10:32:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /conflicts/{conflictId}/perspective/feelings:
+    parameters:
+      - $ref: '#/components/parameters/ConflictId'
+    post:
+      tags:
+        - Feelings
+      operationId: shareFeelings
+      summary: Share my feelings (step 3)
+      description: |
+        After reading the partner's view, the caller says how they feel about the
+        situation. Sets `feelings` and `feelingsSharedAt`; the partner can then read
+        them from `partner-perspective`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShareFeelingsRequest'
+            examples:
+              feelings:
+                summary: Feelings after reading the partner's view
+                value:
+                  feelings: Reading her side, I feel guilty but also...
+      responses:
+        '200':
+          description: Feelings shared.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShareFeelingsResponse'
+              examples:
+                shared:
+                  summary: Feelings stored and shared
+                  value:
+                    feelings: Reading her side, I feel guilty but also...
+                    feelingsSharedAt: '2026-10-31T10:30:00Z'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+components:
+  securitySchemes:
+    accessTokenCookie:
+      type: apiKey
+      in: cookie
+      name: access_token
+      description: |
+        JWT with `sub` (user id), `coupleId` and `exp`. `HttpOnly; Secure;
+        SameSite=Lax; Path=/`; lifetime 15 minutes.
+    refreshTokenCookie:
+      type: apiKey
+      in: cookie
+      name: refresh_token
+      description: |
+        Opaque random string whose hash is stored in `refresh_tokens`.
+        `HttpOnly; Secure; SameSite=Lax; Path=/api/auth`; lifetime 30 days.
+        Rotated on every refresh.
+  parameters:
+    ConflictId:
+      name: conflictId
+      in: path
+      required: true
+      description: Conflict id (UUID).
+      schema:
+        type: string
+        format: uuid
+  headers:
+    SetCookie:
+      description: |
+        Sets `access_token` (and, on auth endpoints, `refresh_token`) with
+        `HttpOnly; Secure; SameSite=Lax`. The refresh cookie is scoped to
+        `Path=/api/auth`. Multiple `Set-Cookie` headers may be returned.
+      schema:
+        type: string
+      example: access_token=eyJhbGciOi...; HttpOnly; Secure; SameSite=Lax; Path=/
+  responses:
+    BadRequest:
+      description: Validation error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            validationError:
+              summary: Invalid request body
+              value:
+                error:
+                  code: VALIDATION_ERROR
+                  message: Validation failed
+                  fields:
+                    email: must be valid
+    Unauthorized:
+      description: |
+        Missing or expired access token, bad credentials, or a bad refresh token.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            missingToken:
+              summary: No valid access token
+              value:
+                error:
+                  code: UNAUTHORIZED
+                  message: Missing or expired access token
+            invalidCredentials:
+              summary: Wrong email or password
+              value:
+                error:
+                  code: INVALID_CREDENTIALS
+                  message: Invalid email or password
+            invalidRefreshToken:
+              summary: Refresh token missing, expired or revoked
+              value:
+                error:
+                  code: INVALID_REFRESH_TOKEN
+                  message: Refresh token is missing, expired or revoked
+    Forbidden:
+      description: |
+        Resource belongs to another couple, or the action is not allowed in this
+        state.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            partnerNotJoined:
+              summary: The couple does not have 2 members yet
+              value:
+                error:
+                  code: PARTNER_NOT_JOINED
+                  message: Your partner has not joined yet
+            actionNotAllowed:
+              summary: Action not allowed in this state
+              value:
+                error:
+                  code: ACTION_NOT_ALLOWED
+                  message: This action is not allowed in the current state
+    NotFound:
+      description: |
+        Not found. Also used when a resource belongs to another couple, so the API
+        does not leak its existence.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            conflictNotFound:
+              summary: Conflict does not exist or belongs to another couple
+              value:
+                error:
+                  code: CONFLICT_NOT_FOUND
+                  message: Conflict not found
+            invalidInviteCode:
+              summary: Invite code is invalid
+              value:
+                error:
+                  code: INVALID_INVITE_CODE
+                  message: Invite code is invalid
+    Conflict:
+      description: |
+        Email already used, couple already has 2 members, or an invalid state
+        transition for the current conflict status.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            emailTaken:
+              summary: Email already registered
+              value:
+                error:
+                  code: EMAIL_TAKEN
+                  message: This email is already registered
+            coupleFull:
+              summary: Couple already has 2 members
+              value:
+                error:
+                  code: COUPLE_FULL
+                  message: This couple already has 2 members
+            invalidStateTransition:
+              summary: Invalid state transition
+              value:
+                error:
+                  code: INVALID_STATE_TRANSITION
+                  message: Conflict status must be feedback to close it
+            notEnoughContext:
+              summary: Private chat is empty
+              value:
+                error:
+                  code: NOT_ENOUGH_CONTEXT
+                  message: Not enough context to generate a summary
+            summaryMissing:
+              summary: No summary to reframe
+              value:
+                error:
+                  code: SUMMARY_MISSING
+                  message: Generate or write a summary first
+            partnerViewMissing:
+              summary: No partner view to approve
+              value:
+                error:
+                  code: PARTNER_VIEW_MISSING
+                  message: Generate a partner view first
+            feelingsNotAllowed:
+              summary: Feelings are not open for this status
+              value:
+                error:
+                  code: INVALID_STATE_TRANSITION
+                  message: Feelings can only be shared while status is feedback
+    RateLimited:
+      description: Rate limited. Important on AI endpoints.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying.
+          schema:
+            type: integer
+            minimum: 0
+          example: 30
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            rateLimited:
+              summary: Too many requests
+              value:
+                error:
+                  code: RATE_LIMITED
+                  message: Too many requests, please try again later
+  schemas:
+    ConflictStatus:
+      type: string
+      description: |
+        `collecting`: each person writes/approves their side (steps 1-2).
+        `feedback`: both approved; partners read each other and share feelings (step 3).
+        `closed`: outcome set (step 5).
+      enum:
+        - collecting
+        - feedback
+        - closed
+    ConflictOutcome:
+      type: string
+      description: Final outcome of a conflict (step 5).
+      enum:
+        - resolved
+        - later
+        - unsolvable
+    MessageRole:
+      type: string
+      enum:
+        - user
+        - assistant
+    User:
+      type: object
+      required:
+        - id
+        - displayName
+        - email
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+          minLength: 1
+        email:
+          type: string
+          format: email
+    CoupleMember:
+      type: object
+      required:
+        - id
+        - displayName
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+          minLength: 1
+    Couple:
+      type: object
+      required:
+        - id
+        - inviteCode
+        - members
+      properties:
+        id:
+          type: string
+          format: uuid
+        inviteCode:
+          type: string
+          description: Code the partner uses to join the couple.
+          example: K7M2QX
+        members:
+          type: array
+          description: |
+            One entry until the partner joins; at most 2 entries.
+          minItems: 1
+          maxItems: 2
+          items:
+            $ref: '#/components/schemas/CoupleMember'
+    AuthSession:
+      type: object
+      description: Current user and couple. Returned by register, login and `GET /auth/me`.
+      required:
+        - user
+        - couple
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        couple:
+          $ref: '#/components/schemas/Couple'
+    RegisterRequest:
+      type: object
+      required:
+        - displayName
+        - email
+        - password
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        inviteCode:
+          type: string
+          description: Optional code used to join an existing couple.
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 1
+    CreateConflictRequest:
+      type: object
+      required:
+        - title
+      properties:
+        title:
+          type: string
+          minLength: 1
+    Conflict:
+      type: object
+      required:
+        - id
+        - title
+        - status
+        - outcome
+        - flagged
+        - createdBy
+        - createdAt
+        - closedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          minLength: 1
+        status:
+          $ref: '#/components/schemas/ConflictStatus'
+        outcome:
+          anyOf:
+            - $ref: '#/components/schemas/ConflictOutcome'
+            - type: 'null'
+        flagged:
+          type: boolean
+          description: Set when the AI detects safety signals.
+        createdBy:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        closedAt:
+          anyOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+    ConflictListItem:
+      type: object
+      required:
+        - id
+        - title
+        - status
+        - outcome
+        - createdAt
+        - closedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          minLength: 1
+        status:
+          $ref: '#/components/schemas/ConflictStatus'
+        outcome:
+          anyOf:
+            - $ref: '#/components/schemas/ConflictOutcome'
+            - type: 'null'
+        createdAt:
+          type: string
+          format: date-time
+        closedAt:
+          anyOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+    ConflictList:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConflictListItem'
+    PerspectiveProgress:
+      type: object
+      description: Non-private progress summary for one person.
+      required:
+        - hasSummary
+        - approved
+        - feelingsShared
+      properties:
+        hasSummary:
+          type: boolean
+        approved:
+          type: boolean
+        feelingsShared:
+          type: boolean
+    ConflictProgress:
+      type: object
+      required:
+        - me
+        - partner
+      properties:
+        me:
+          $ref: '#/components/schemas/PerspectiveProgress'
+        partner:
+          $ref: '#/components/schemas/PerspectiveProgress'
+    ConflictDetail:
+      allOf:
+        - $ref: '#/components/schemas/Conflict'
+        - type: object
+          required:
+            - progress
+          properties:
+            progress:
+              $ref: '#/components/schemas/ConflictProgress'
+    CloseConflictRequest:
+      type: object
+      required:
+        - outcome
+      properties:
+        outcome:
+          $ref: '#/components/schemas/ConflictOutcome'
+    Message:
+      type: object
+      required:
+        - id
+        - role
+        - content
+        - createdAt
+      properties:
+        id:
+          type: integer
+          format: int64
+        role:
+          $ref: '#/components/schemas/MessageRole'
+        content:
+          type: string
+          minLength: 1
+        createdAt:
+          type: string
+          format: date-time
+    MessageList:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+    SendMessageRequest:
+      type: object
+      required:
+        - content
+      properties:
+        content:
+          type: string
+          minLength: 1
+    SafetyNotice:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: Support guidance to display prominently in the UI.
+    SendMessageResponse:
+      type: object
+      required:
+        - userMessage
+        - assistantMessage
+        - safetyNotice
+      properties:
+        userMessage:
+          $ref: '#/components/schemas/Message'
+        assistantMessage:
+          $ref: '#/components/schemas/Message'
+        safetyNotice:
+          anyOf:
+            - $ref: '#/components/schemas/SafetyNotice'
+            - type: 'null'
+    Perspective:
+      type: object
+      required:
+        - summary
+        - partnerView
+        - feelings
+        - approvedAt
+        - feelingsSharedAt
+      properties:
+        summary:
+          anyOf:
+            - type: string
+              minLength: 1
+            - type: 'null'
+        partnerView:
+          anyOf:
+            - type: string
+              minLength: 1
+            - type: 'null'
+        feelings:
+          anyOf:
+            - type: string
+              minLength: 1
+            - type: 'null'
+        approvedAt:
+          anyOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        feelingsSharedAt:
+          anyOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+    UpdatePerspectiveRequest:
+      type: object
+      required:
+        - summary
+      properties:
+        summary:
+          type: string
+          minLength: 1
+    SummaryResponse:
+      type: object
+      required:
+        - summary
+      properties:
+        summary:
+          type: string
+          minLength: 1
+    PartnerViewResponse:
+      type: object
+      required:
+        - partnerView
+      properties:
+        partnerView:
+          type: string
+          minLength: 1
+    ApproveResponse:
+      type: object
+      required:
+        - approvedAt
+        - conflictStatus
+      properties:
+        approvedAt:
+          type: string
+          format: date-time
+        conflictStatus:
+          type: string
+          description: |
+            `collecting` if the partner has not approved yet; `feedback` once both
+            partners have approved.
+          enum:
+            - collecting
+            - feedback
+    PartnerPerspective:
+      description: |
+        Either `{ "available": false }` when the partner's view cannot be read yet,
+        or the approved view and feelings when it can.
+      oneOf:
+        - $ref: '#/components/schemas/PartnerPerspectiveUnavailable'
+        - $ref: '#/components/schemas/PartnerPerspectiveAvailable'
+    PartnerPerspectiveUnavailable:
+      type: object
+      description: Partner perspective is not available yet.
+      required:
+        - available
+      properties:
+        available:
+          type: boolean
+          enum:
+            - false
+    PartnerPerspectiveAvailable:
+      type: object
+      description: The partner's approved view and, once shared, feelings.
+      required:
+        - available
+        - partnerView
+        - approvedAt
+        - feelings
+        - feelingsSharedAt
+      properties:
+        available:
+          type: boolean
+          enum:
+            - true
+        partnerView:
+          type: string
+          minLength: 1
+        approvedAt:
+          type: string
+          format: date-time
+        feelings:
+          anyOf:
+            - type: string
+              minLength: 1
+            - type: 'null'
+        feelingsSharedAt:
+          anyOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+    ShareFeelingsRequest:
+      type: object
+      required:
+        - feelings
+      properties:
+        feelings:
+          type: string
+          minLength: 1
+    ShareFeelingsResponse:
+      type: object
+      required:
+        - feelings
+        - feelingsSharedAt
+      properties:
+        feelings:
+          type: string
+          minLength: 1
+        feelingsSharedAt:
+          type: string
+          format: date-time
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              description: Machine-readable error code, e.g. `CONFLICT_NOT_FOUND`.
+            message:
+              type: string
+            fields:
+              type: object
+              description: Optional field-level validation messages.
+              additionalProperties:
+                type: string
