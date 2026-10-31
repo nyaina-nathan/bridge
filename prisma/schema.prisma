@@ -1,0 +1,89 @@
+generator client {
+  provider = "prisma-client"
+  output   = "./generated"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model conflicts {
+  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  couple_id    String         @db.Uuid
+  created_by   String         @db.Uuid
+  title        String
+  status       String         @default("collecting")
+  outcome      String?
+  flagged      Boolean        @default(false)
+  created_at   DateTime       @default(now()) @db.Timestamptz(6)
+  closed_at    DateTime?      @db.Timestamptz(6)
+  couples      couples        @relation(fields: [couple_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users        users          @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  messages     messages[]
+  perspectives perspectives[]
+}
+
+model couples {
+  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  invite_code String      @unique
+  created_at  DateTime    @default(now()) @db.Timestamptz(6)
+  conflicts   conflicts[]
+  users       users[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model messages {
+  id          BigInt    @id @default(autoincrement())
+  conflict_id String    @db.Uuid
+  user_id     String    @db.Uuid
+  role        String
+  content     String
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  conflicts   conflicts @relation(fields: [conflict_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users       users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([conflict_id, user_id, created_at], map: "idx_messages_thread")
+}
+
+model perspectives {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conflict_id        String    @db.Uuid
+  user_id            String    @db.Uuid
+  summary            String?
+  partner_view       String?
+  feelings           String?
+  approved_at        DateTime? @db.Timestamptz(6)
+  feelings_shared_at DateTime? @db.Timestamptz(6)
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  conflicts          conflicts @relation(fields: [conflict_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users              users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([conflict_id, user_id])
+}
+
+model refresh_tokens {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String    @db.Uuid
+  token_hash String    @unique
+  expires_at DateTime  @db.Timestamptz(6)
+  revoked_at DateTime? @db.Timestamptz(6)
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([user_id], map: "idx_refresh_tokens_user")
+}
+
+model users {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  couple_id      String?          @db.Uuid
+  display_name   String
+  email          String           @unique
+  password_hash  String
+  created_at     DateTime         @default(now()) @db.Timestamptz(6)
+  conflicts      conflicts[]
+  messages       messages[]
+  perspectives   perspectives[]
+  refresh_tokens refresh_tokens[]
+  couples        couples?         @relation(fields: [couple_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
