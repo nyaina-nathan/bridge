@@ -11,11 +11,13 @@ info:
     | Cookie | Content | Flags | Lifetime |
     |---|---|---|---|
     | `access_token` | JWT (`sub` = user id, `coupleId`, `exp`) | `HttpOnly; Secure; SameSite=Lax; Path=/` | 15 min |
-    | `refresh_token` | opaque random string (hash stored in `refresh_tokens`) | `HttpOnly; Secure; SameSite=Lax; Path=/api/auth` | 30 days |
+    | `refresh_token` | opaque random string (hash stored in `refresh_tokens`) | `HttpOnly; Secure; SameSite=Lax; Path=/` | 30 days |
 
     - Every endpoint except `register`, `login` and `refresh` requires a valid
       `access_token` cookie, otherwise `401`.
-    - The refresh cookie is scoped to `/api/auth`, so it is only sent to the auth endpoints.
+    - The refresh cookie is sent on every same-origin path so the app proxy can
+      transparently refresh an expired access token before a page or API request
+      reaches its handler.
     - `POST /auth/refresh` always sets a new `access_token`. The refresh token is
       rotated (the old row is revoked and a new cookie is set) only when less than
       24 hours remain before its 30-day expiry; otherwise the existing refresh token
@@ -24,8 +26,9 @@ info:
     - Cross-site deployments use `SameSite=None; Secure` plus CORS with
       `credentials: include`, an allowed-origin list, and CSRF protection (for example a
       custom header check).
-    - Frontend flow: on `401` from any endpoint, call `POST /auth/refresh` once, then retry
-      the original request. If refresh fails, go to login.
+    - Same-origin browser requests are refreshed by the app proxy before they reach the
+      page or route handler. Cross-origin clients should still call `POST /auth/refresh`
+      on `401`, then retry the original request. If refresh fails, go to login.
 
     ## Errors
 
@@ -832,7 +835,7 @@ components:
       name: refresh_token
       description: |
         Opaque random string whose hash is stored in `refresh_tokens`.
-        `HttpOnly; Secure; SameSite=Lax; Path=/api/auth`; lifetime 30 days.
+        `HttpOnly; Secure; SameSite=Lax; Path=/`; lifetime 30 days.
         Rotated automatically when less than 24 hours remain before expiry.
   parameters:
     ConflictId:
@@ -848,7 +851,7 @@ components:
       description: |
         Sets `access_token` and, when the refresh token was rotated, `refresh_token`,
         with `HttpOnly; Secure; SameSite=Lax`. The refresh cookie is scoped to
-        `Path=/api/auth`. Multiple `Set-Cookie` headers may be returned.
+        `Path=/`. Multiple `Set-Cookie` headers may be returned.
       schema:
         type: string
       example: access_token=eyJhbGciOi...; HttpOnly; Secure; SameSite=Lax; Path=/

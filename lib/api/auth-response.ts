@@ -39,11 +39,13 @@ function setAuthCookies(
   });
 
   if (tokens.refreshToken) {
+    // Sent on every path so the proxy can refresh an expired access token
+    // before a page or API request reaches its handler.
     response.cookies.set(REFRESH_TOKEN_COOKIE, tokens.refreshToken, {
       httpOnly: true,
       secure,
       sameSite: "lax",
-      path: "/api/auth",
+      path: "/",
       maxAge: REFRESH_TOKEN_MAX_AGE,
     });
   }
@@ -110,7 +112,7 @@ export function clearAuthCookies(response: NextResponse): NextResponse {
 
   response.cookies.set(REFRESH_TOKEN_COOKIE, "", {
     ...expired,
-    path: "/api/auth",
+    path: "/",
   });
 
   response.headers.set("Cache-Control", "no-store");
