@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { ApiError } from "../api/errors";
+import { parseBody, readJsonBody } from "./http";
 
 /**
  * bcrypt only consumes the first 72 bytes of a password. Reject longer
@@ -48,35 +48,6 @@ export const loginSchema = z.object({
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
-
-function formatIssues(error: z.ZodError): Record<string, string> {
-  const fields: Record<string, string> = {};
-
-  for (const issue of error.issues) {
-    const field = issue.path.length > 0 ? issue.path.join(".") : "body";
-    fields[field] ??= issue.message;
-  }
-
-  return fields;
-}
-
-async function readJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    throw ApiError.validation({ body: "Request body must be valid JSON" });
-  }
-}
-
-function parseBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
-  const result = schema.safeParse(body);
-
-  if (!result.success) {
-    throw ApiError.validation(formatIssues(result.error));
-  }
-
-  return result.data;
-}
 
 export async function parseRegisterRequest(
   request: Request,
