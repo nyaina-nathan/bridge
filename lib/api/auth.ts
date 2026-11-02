@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import type { NextRequest } from "next/server";
 
 import { verifyAccessToken } from "../auth/jwt";
@@ -25,4 +26,22 @@ export async function requireAuth(request: NextRequest): Promise<AuthContext> {
   }
 
   return context;
+}
+
+/**
+ * Reads and verifies the access token cookie from a Server Component, where
+ * there is no `NextRequest` to pass to `requireAuth`.
+ *
+ * `proxy.ts` refreshes an expired access token before the request reaches the
+ * page, so this sees the same credentials as a protected route handler.
+ */
+export async function getServerAuthContext(): Promise<AuthContext | null> {
+  const cookieStore = await cookies();
+  const token = cookieStore.get(ACCESS_TOKEN_COOKIE)?.value;
+
+  if (!token) {
+    return null;
+  }
+
+  return verifyAccessToken(token);
 }

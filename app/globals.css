@@ -91,3 +91,55 @@
     animation: none;
   }
 }
+
+.gate-scrim {
+  opacity: 1;
+  transition: opacity 200ms ease-out;
+}
+
+.gate-panel {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 200ms ease-out,
+    transform 280ms var(--ease-out-strong);
+}
+
+.gate-panel[data-leaving="true"] {
+  opacity: 0;
+  transform: translateY(6px) scale(0.985);
+  transition-duration: 160ms;
+}
+
+@starting-style {
+  .gate-scrim {
+    opacity: 0;
+  }
+
+  .gate-panel {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gate-scrim,
+  .gate-panel {
+    transition: opacity 160ms ease;
+  }
+
+  .gate-panel {
+    transform: none;
+  }
+
+  .gate-panel[data-leaving="true"] {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .gate-scrim {
+    background-color: rgb(34 22 43 / 0.45);
+    backdrop-filter: none;
+  }
+}
