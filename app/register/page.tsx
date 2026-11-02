@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { AuthForm } from "@/app/_components/auth/auth-form";
 import { AuthShell } from "@/app/_components/auth/auth-shell";
-import { PlaceholderForm } from "@/app/_components/auth/placeholder-form";
 
 export const metadata: Metadata = {
   title: "Create your space",
@@ -28,7 +28,7 @@ export default function RegisterPage() {
         </>
       }
     >
-      <PlaceholderForm mode="register" />
+      <AuthForm mode="register" />
     </AuthShell>
   );
 }
