@@ -143,3 +143,46 @@
     backdrop-filter: none;
   }
 }
+
+.problem-dialog {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 200ms ease-out,
+    transform 280ms var(--ease-out-strong);
+}
+
+.problem-dialog::backdrop {
+  background-color: rgb(34 22 43 / 0.35);
+  backdrop-filter: blur(6px);
+  transition: opacity 200ms ease-out;
+}
+
+@starting-style {
+  .problem-dialog[open] {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+
+  .problem-dialog[open]::backdrop {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .problem-dialog,
+  .problem-dialog::backdrop {
+    transition: opacity 160ms ease;
+  }
+
+  .problem-dialog {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .problem-dialog::backdrop {
+    background-color: rgb(34 22 43 / 0.45);
+    backdrop-filter: none;
+  }
+}

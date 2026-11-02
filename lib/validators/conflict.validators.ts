@@ -9,7 +9,11 @@ export const conflictOutcomeSchema = z.enum([
 ]);
 
 export const createConflictSchema = z.object({
-  title: z.string().trim().min(1, "Title is required"),
+  title: z
+    .string()
+    .trim()
+    .min(1, "Title is required")
+    .max(120, "Keep the title under 120 characters"),
 });
 
 export const closeConflictSchema = z.object({

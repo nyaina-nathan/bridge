@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
-import { Field } from "@/app/_components/auth/field";
+import { Field } from "@/app/_components/ui/field";
 import { ArrowRightIcon, InfoIcon } from "@/app/_components/icons";
 import { Button } from "@/app/_components/ui/button";
 import { ApiClientError, postJson } from "@/lib/api/client";
