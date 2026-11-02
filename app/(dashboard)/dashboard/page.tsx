@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { cache, Suspense } from "react";
 
 import { ConflictList } from "@/app/_components/dashboard/conflict-list";
 import { NewConflictButton } from "@/app/_components/dashboard/new-conflict-button";
@@ -12,16 +13,63 @@ export const metadata: Metadata = {
   description: "Your Bridge space.",
 };
 
-export default async function DashboardPage() {
+/**
+ * Shared by the heading count and the list. `cache` dedupes the auth read and
+ * the query within a single render, and both consumers stream independently.
+ */
+const loadConflicts = cache(async () => {
   const auth = await getServerAuthContext();
 
   if (!auth) {
     redirect("/login");
   }
 
-  const conflicts = await listConflicts(auth.coupleId);
-  const conflictCount = conflicts.items.length;
+  return listConflicts(auth.coupleId);
+});
 
+function conflictCountLabel(count: number): string {
+  if (count === 0) {
+    return "Nothing yet";
+  }
+
+  return count === 1 ? "1 conflict" : `${count} conflicts`;
+}
+
+async function ConflictCount() {
+  const conflicts = await loadConflicts();
+
+  return <>{conflictCountLabel(conflicts.items.length)}</>;
+}
+
+async function ConflictListData() {
+  const conflicts = await loadConflicts();
+
+  return <ConflictList items={conflicts.items} />;
+}
+
+function ConflictListSkeleton() {
+  return (
+    <div aria-busy="true" className="mt-5 motion-safe:animate-pulse">
+      <span className="sr-only">Loading conflicts…</span>
+      <div className="divide-y divide-line overflow-hidden rounded-3xl border border-line bg-paper shadow-card">
+        {[0, 1, 2].map((row) => (
+          <div
+            key={row}
+            className="flex items-center justify-between gap-6 px-5 py-5 sm:px-6"
+          >
+            <div className="min-w-0 flex-1">
+              <div className="h-4 w-1/2 rounded-full bg-ink/[0.07]" />
+              <div className="mt-2.5 h-3 w-1/3 rounded-full bg-ink/[0.05]" />
+            </div>
+            <div className="h-6 w-20 shrink-0 rounded-full bg-ink/[0.05]" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function DashboardPage() {
   return (
     <Container className="py-12 sm:py-20">
       <div className="flex flex-col gap-8 sm:flex-row sm:items-end sm:justify-between">
@@ -52,15 +100,22 @@ export default async function DashboardPage() {
             Conflicts
           </h2>
           <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted">
-            {conflictCount === 0
-              ? "Nothing yet"
-              : conflictCount === 1
-                ? "1 conflict"
-                : `${conflictCount} conflicts`}
+            <Suspense
+              fallback={
+                <span
+                  aria-hidden="true"
+                  className="inline-block h-3 w-16 rounded-full bg-ink/[0.06] align-middle motion-safe:animate-pulse"
+                />
+              }
+            >
+              <ConflictCount />
+            </Suspense>
           </p>
         </div>
 
-        <ConflictList items={conflicts.items} />
+        <Suspense fallback={<ConflictListSkeleton />}>
+          <ConflictListData />
+        </Suspense>
       </section>
     </Container>
   );

@@ -1,4 +1,6 @@
-import { PlusIcon } from "@/app/_components/icons";
+import Link from "next/link";
+
+import { ChevronRightIcon, PlusIcon } from "@/app/_components/icons";
 import { cx } from "@/lib/utils/cx";
 import type {
   ConflictListItem,
@@ -84,46 +86,51 @@ export function ConflictList({ items }: ConflictListProps) {
         const meta = statusMeta(conflict);
 
         return (
-          <li
-            key={conflict.id}
-            className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:px-6"
-          >
-            <div className="min-w-0">
-              <p className="text-pretty text-base font-semibold text-ink">
-                {conflict.title}
-              </p>
-              <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs leading-5 text-muted">
-                <span>
-                  Created{" "}
-                  <time dateTime={conflict.createdAt}>
-                    {formatDate(conflict.createdAt)}
-                  </time>
-                </span>
-                <span
-                  aria-hidden="true"
-                  className="size-1 rounded-full bg-line"
-                />
-                {conflict.closedAt ? (
+          <li key={conflict.id}>
+            <Link
+              href={`/dashboard/conflicts/${conflict.id}`}
+              className="group flex flex-col gap-4 px-5 py-5 transition-colors duration-200 ease-out-strong hover:bg-bone/60 focus-visible:outline-offset-[-2px] active:bg-ink/[0.03] sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:px-6"
+            >
+              <div className="min-w-0">
+                <p className="text-pretty text-base font-semibold text-ink">
+                  {conflict.title}
+                </p>
+                <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs leading-5 text-muted">
                   <span>
-                    Closed{" "}
-                    <time dateTime={conflict.closedAt}>
-                      {formatDate(conflict.closedAt)}
+                    Created{" "}
+                    <time dateTime={conflict.createdAt}>
+                      {formatDate(conflict.createdAt)}
                     </time>
                   </span>
-                ) : (
-                  <span>Still open</span>
-                )}
-              </p>
-            </div>
+                  <span
+                    aria-hidden="true"
+                    className="size-1 rounded-full bg-line"
+                  />
+                  {conflict.closedAt ? (
+                    <span>
+                      Closed{" "}
+                      <time dateTime={conflict.closedAt}>
+                        {formatDate(conflict.closedAt)}
+                      </time>
+                    </span>
+                  ) : (
+                    <span>Still open</span>
+                  )}
+                </p>
+              </div>
 
-            <span
-              className={cx(
-                "inline-flex shrink-0 items-center self-start rounded-full px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] sm:self-auto",
-                meta.className,
-              )}
-            >
-              {meta.label}
-            </span>
+              <div className="flex shrink-0 items-center gap-3 self-start sm:self-auto">
+                <span
+                  className={cx(
+                    "inline-flex items-center rounded-full px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em]",
+                    meta.className,
+                  )}
+                >
+                  {meta.label}
+                </span>
+                <ChevronRightIcon className="size-4 text-muted/60 transition-transform duration-200 ease-out-strong group-hover:translate-x-0.5 group-hover:text-muted" />
+              </div>
+            </Link>
           </li>
         );
       })}

@@ -524,6 +524,7 @@ paths:
                       role: assistant
                       content: It sounds like the dishes were the last straw after a long day.
                       createdAt: '2026-10-31T10:02:03Z'
+                    readyToSummarize: false
                     safetyNotice: null
                 safetyFlagged:
                   summary: Safety signal detected
@@ -538,6 +539,7 @@ paths:
                       role: assistant
                       content: Thank you for sharing that. Your safety matters.
                       createdAt: '2026-10-31T10:05:03Z'
+                    readyToSummarize: false
                     safetyNotice:
                       message: If you feel unsafe, consider reaching out to a trusted person or local support service.
         '400':
@@ -1299,12 +1301,16 @@ components:
       required:
         - userMessage
         - assistantMessage
+        - readyToSummarize
         - safetyNotice
       properties:
         userMessage:
           $ref: '#/components/schemas/Message'
         assistantMessage:
           $ref: '#/components/schemas/Message'
+        readyToSummarize:
+          type: boolean
+          description: True when the mediator has facts, feelings, needs and a desired outcome for this participant.
         safetyNotice:
           anyOf:
             - $ref: '#/components/schemas/SafetyNotice'
