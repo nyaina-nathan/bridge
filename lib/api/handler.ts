@@ -39,6 +39,10 @@ export function withErrorHandling<TParams = Record<string, string>>(
     } catch (error) {
       // Let Next.js control-flow errors (prerender bailouts, redirects,
       // notFound) propagate instead of turning them into a 500.
+      console.error(
+        `[api] ${request.method} ${request.nextUrl.pathname}`,
+        error,
+      );
       unstable_rethrow(error);
 
       if (isApiError(error)) {
@@ -48,11 +52,7 @@ export function withErrorHandling<TParams = Record<string, string>>(
         });
       }
 
-      console.error(
-        `[api] ${request.method} ${request.nextUrl.pathname}`,
-        error,
-      );
-
+      
       const internal = ApiError.internal(error);
       return NextResponse.json(internal.toJSON(), {
         status: internal.status,
