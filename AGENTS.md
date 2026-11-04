@@ -19,10 +19,11 @@ npm run dev      # next dev (Turbopack)
 npm run build    # production build; also type-checks
 npm run start    # run the production build
 npm run lint     # eslint via eslint-config-next
+npm test         # vitest unit suite (__test__/unit)
 npx tsc --noEmit # optional standalone TypeScript check
 ```
 
-There is no test suite or formatter script yet. Verify changes with `npm run lint` and `npm run build`, and exercise the affected flow in the browser.
+Unit tests live in `__test__/unit/*.unit-test.ts` and run with Vitest. There is no formatter script yet. Verify changes with `npm test`, `npm run lint`, and `npm run build`, and exercise the affected flow in the browser.
 
 ## Environment
 
