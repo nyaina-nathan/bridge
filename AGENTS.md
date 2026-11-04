@@ -20,10 +20,11 @@ npm run build    # production build; also type-checks
 npm run start    # run the production build
 npm run lint     # eslint via eslint-config-next
 npm test         # vitest unit suite (__test__/unit)
+npm run test:integration # Testcontainers + PostgreSQL API integration suite
 npx tsc --noEmit # optional standalone TypeScript check
 ```
 
-Unit tests live in `__test__/unit/*.unit-test.ts` and run with Vitest. There is no formatter script yet. Verify changes with `npm test`, `npm run lint`, and `npm run build`, and exercise the affected flow in the browser.
+Unit tests live in `__test__/unit/*.unit-test.ts` and run with Vitest. Integration tests live in `__test__/integration/*.integration-test.ts`, boot a disposable PostgreSQL container, and call the route handlers directly; they require Docker. There is no formatter script yet. Verify changes with `npm test`, `npm run test:integration` when touching API/DB code, `npm run lint`, and `npm run build`, and exercise the affected flow in the browser.
 
 ## Environment
 
