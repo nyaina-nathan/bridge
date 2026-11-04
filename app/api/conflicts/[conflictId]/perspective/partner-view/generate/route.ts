@@ -1,0 +1,14 @@
+import { requireAuth } from "@/lib/api/auth";
+import { withErrorHandling } from "@/lib/api/handler";
+import { jsonResponse } from "@/lib/api/json";
+import { generatePartnerView } from "@/lib/services/perspective.service";
+
+export const POST = withErrorHandling<{ conflictId: string }>(
+  async (request, { params }) => {
+    const { userId, coupleId } = await requireAuth(request);
+    const { conflictId } = await params;
+    const result = await generatePartnerView(conflictId, coupleId, userId);
+
+    return jsonResponse(result);
+  },
+);

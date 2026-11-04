@@ -1,10 +1,9 @@
-import { jsonrepair } from "jsonrepair";
 import { z } from "zod";
 
-import { ApiError } from "../api/errors";
 import type { MessageRole } from "../types/message.types";
 import { buildMessageSystemPrompt } from "../prompts/message.prompts";
 import { getMessageModel, getOpenRouterClient } from "./openrouter";
+import { parseJsonReply, rethrowModelError } from "./structured";
 
 export const mediatorReplySchema = z.object({
   reply: z.string().trim().min(1),
@@ -62,49 +61,6 @@ type MediatorTurn = {
 /** Output cap for one mediator reply, as agreed with the product team. */
 const MAX_OUTPUT_TOKENS = 1000;
 
-function isRateLimitError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "statusCode" in error &&
-    error.statusCode === 429
-  );
-}
-
-function parseReply(text: string): MediatorReply {
-  const json = text
-    .trim()
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/, "");
-
-  let parsed: unknown;
-
-  try {
-    parsed = JSON.parse(json);
-  } catch {
-    // Some providers ignore the JSON schema and leave quotes inside strings
-    // unescaped. Repair those replies instead of failing the user's turn.
-    try {
-      parsed = JSON.parse(jsonrepair(json));
-    } catch (error) {
-      console.error("[mediator] model reply was not valid JSON", error);
-      throw ApiError.internal(error);
-    }
-  }
-
-  const result = mediatorReplySchema.safeParse(parsed);
-
-  if (!result.success) {
-    console.error(
-      "[mediator] model reply did not match the schema",
-      result.error.issues,
-    );
-    throw ApiError.internal(result.error);
-  }
-
-  return result.data;
-}
-
 /**
  * Runs one mediator turn against the caller's full private history.
  *
@@ -143,16 +99,12 @@ export async function completeMediatorTurn({
   });
 
   try {
-    return parseReply(await result.getText());
+    return parseJsonReply(
+      await result.getText(),
+      mediatorReplySchema,
+      "mediator",
+    );
   } catch (error) {
-    if (error instanceof ApiError) {
-      throw error;
-    }
-
-    if (isRateLimitError(error)) {
-      throw ApiError.rateLimited();
-    }
-
-    throw ApiError.internal(error);
+    rethrowModelError(error);
   }
 }
