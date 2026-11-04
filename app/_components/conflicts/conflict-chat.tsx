@@ -11,22 +11,31 @@ import {
 } from "react";
 
 import {
+  ArrowRightIcon,
   InfoIcon,
   LockIcon,
   SendIcon,
   ShieldIcon,
 } from "@/app/_components/icons";
+import { Button } from "@/app/_components/ui/button";
 import { ApiClientError, postJson } from "@/lib/api/client";
 import type { Message, SendMessageResult } from "@/lib/types/message.types";
+import type { SummaryResponse } from "@/lib/types/perspective.types";
 import { cx } from "@/lib/utils/cx";
+
+import { ConflictSummary } from "./conflict-summary";
 
 type ConflictChatProps = {
   conflictId: string;
   initialMessages: Message[];
+  initialSummary: string | null;
+  initialPartnerView: string | null;
+  initialApprovedAt: string | null;
 };
 
 const WORD_STAGGER_MS = 24;
 const MAX_REVEAL_MS = 900;
+const MIN_USER_MESSAGES = 5;
 
 function tokenizeForReveal(text: string) {
   let wordIndex = -1;
@@ -117,6 +126,9 @@ function TypingIndicator() {
 export function ConflictChat({
   conflictId,
   initialMessages,
+  initialSummary,
+  initialPartnerView,
+  initialApprovedAt,
 }: ConflictChatProps) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -127,13 +139,23 @@ export function ConflictChat({
   const [messages, setMessages] = useState(initialMessages);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
+  const [summarizing, setSummarizing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [safetyNotice, setSafetyNotice] = useState<string | null>(null);
   const [readyToSummarize, setReadyToSummarize] = useState(false);
   const [revealId, setRevealId] = useState<number | null>(null);
+  const [summary, setSummary] = useState<string | null>(initialSummary);
 
   const trimmedDraft = draft.trim();
-  const canSend = trimmedDraft.length > 0 && !pending;
+  const canSend = trimmedDraft.length > 0 && !pending && !summarizing;
+  const userMessageCount = messages.reduce(
+    (count, message) => (message.role === "user" ? count + 1 : count),
+    0,
+  );
+  const showSummaryCta =
+    summary === null &&
+    !pending &&
+    (userMessageCount >= MIN_USER_MESSAGES || readyToSummarize);
 
   useEffect(() => {
     const scrollArea = scrollRef.current;
@@ -157,7 +179,7 @@ export function ConflictChat({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (sendingRef.current || !trimmedDraft) {
+    if (sendingRef.current || !trimmedDraft || summarizing) {
       return;
     }
 
@@ -228,6 +250,45 @@ export function ConflictChat({
     }
   }
 
+  async function handleMoveToNextStage() {
+    if (summarizing) {
+      return;
+    }
+
+    setSummarizing(true);
+    setError(null);
+
+    try {
+      const result = await postJson<SummaryResponse>(
+        `/api/conflicts/${conflictId}/perspective/summary/generate`,
+        {},
+      );
+
+      setSummary(result.summary);
+      router.refresh();
+    } catch (requestError) {
+      if (requestError instanceof ApiClientError) {
+        if (requestError.status === 401) {
+          router.replace("/login");
+          return;
+        }
+
+        if (requestError.status === 409) {
+          setError(requestError.message);
+          router.refresh();
+          return;
+        }
+
+        setError(requestError.message);
+        return;
+      }
+
+      setError("Couldn’t create your summary. Please try again.");
+    } finally {
+      setSummarizing(false);
+    }
+  }
+
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (
       event.key === "Enter" &&
@@ -240,6 +301,17 @@ export function ConflictChat({
         formRef.current?.requestSubmit();
       }
     }
+  }
+
+  if (summary !== null) {
+    return (
+      <ConflictSummary
+        conflictId={conflictId}
+        initialSummary={summary}
+        initialPartnerView={initialPartnerView}
+        initialApprovedAt={initialApprovedAt}
+      />
+    );
   }
 
   return (
@@ -322,15 +394,36 @@ export function ConflictChat({
           </div>
         ) : null}
 
-        {readyToSummarize ? (
-          <div className="mb-3 rounded-2xl border border-sage/20 bg-sage-soft/70 px-4 py-3 text-sm leading-6 text-sage">
-            <span className="font-medium">You’ve covered the ground.</span>{" "}
-            Your summary is the next step — you’ll be able to edit it before
-            anything is shared.
+        {showSummaryCta ? (
+          <div className="mb-3 flex flex-col gap-3 rounded-2xl border border-sage/20 bg-sage-soft/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm leading-6 text-sage">
+              <span className="font-medium">
+                {readyToSummarize
+                  ? "You’ve covered the ground."
+                  : "You’ve shared enough to start."}
+              </span>{" "}
+              Your summary is the next step — you’ll be able to edit it before
+              anything is shared.
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleMoveToNextStage}
+              disabled={summarizing}
+              aria-busy={summarizing}
+              className="shrink-0 self-start sm:self-auto"
+            >
+              <ArrowRightIcon className="size-4" />
+              {summarizing ? "Creating summary…" : "Move to next stage"}
+            </Button>
           </div>
         ) : null}
 
-        <form ref={formRef} onSubmit={handleSubmit} aria-busy={pending}>
+        <form
+          ref={formRef}
+          onSubmit={handleSubmit}
+          aria-busy={pending || summarizing}
+        >
           <label htmlFor="message" className="sr-only">
             Your message
           </label>
@@ -344,9 +437,11 @@ export function ConflictChat({
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={
-                pending
-                  ? "The mediator is reading…"
-                  : "Say what happened, in your words…"
+                summarizing
+                  ? "Creating your summary…"
+                  : pending
+                    ? "The mediator is reading…"
+                    : "Say what happened, in your words…"
               }
               autoComplete="off"
               className="max-h-36 min-h-10 flex-1 resize-none bg-transparent py-2.5 text-sm leading-6 text-ink outline-none placeholder:text-muted/70"

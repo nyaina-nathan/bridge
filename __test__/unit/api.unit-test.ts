@@ -11,7 +11,7 @@ import {
   refreshResponse,
   sessionResponse,
 } from "@/lib/api/auth-response";
-import { ApiClientError, postJson } from "@/lib/api/client";
+import { ApiClientError, postJson, putJson } from "@/lib/api/client";
 import {
   ApiError,
   ERROR_STATUS,
@@ -481,6 +481,26 @@ describe("lib/api/client", () => {
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
       body: JSON.stringify({ title: "Hi" }),
+    });
+  });
+
+  it("puts same-origin JSON and returns the parsed body", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ summary: "I felt alone." }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      putJson("/api/things/1", { summary: "I felt alone." }),
+    ).resolves.toEqual({ summary: "I felt alone." });
+    expect(fetchMock).toHaveBeenCalledWith("/api/things/1", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ summary: "I felt alone." }),
     });
   });
 

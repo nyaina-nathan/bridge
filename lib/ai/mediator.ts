@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { MessageRole } from "../types/message.types";
 import { buildMessageSystemPrompt } from "../prompts/message.prompts";
 import { getMessageModel, getOpenRouterClient } from "./openrouter";
-import { parseJsonReply, rethrowModelError } from "./structured";
+import { parseJsonReply, readModelText, rethrowModelError } from "./structured";
 
 export const mediatorReplySchema = z.object({
   reply: z.string().trim().min(1),
@@ -58,8 +58,11 @@ type MediatorTurn = {
   content: string;
 };
 
-/** Output cap for one mediator reply, as agreed with the product team. */
-const MAX_OUTPUT_TOKENS = 1000;
+/**
+ * Output cap for one mediator reply. Reasoning tokens count toward this cap,
+ * so leave headroom even though reasoning is disabled below.
+ */
+const MAX_OUTPUT_TOKENS = 2000;
 
 /**
  * Runs one mediator turn against the caller's full private history.
@@ -81,6 +84,9 @@ export async function completeMediatorTurn({
       otherName,
     }),
     maxOutputTokens: MAX_OUTPUT_TOKENS,
+    // The reply is short and the prompt already fixes its shape; reasoning
+    // tokens would only risk leaving no budget for the JSON message.
+    reasoning: { enabled: false },
     input: [
       ...history.map((message) => ({
         role: message.role,
@@ -100,7 +106,7 @@ export async function completeMediatorTurn({
 
   try {
     return parseJsonReply(
-      await result.getText(),
+      await readModelText(result, "mediator"),
       mediatorReplySchema,
       "mediator",
     );

@@ -98,4 +98,13 @@ describe("partner view prompt", () => {
   it("keeps the raw template placeholder", () => {
     expect(partnerViewSystemPrompt).toContain("{{participantName}}");
   });
+
+  it("asks for a first-person message addressed to the partner", () => {
+    const prompt = buildPartnerViewSystemPrompt({ participantName: "Ada" });
+
+    expect(prompt).toContain("first person");
+    expect(prompt).toContain('Address the partner directly as "you"');
+    expect(prompt).not.toContain('Write about Ada in the third person');
+    expect(prompt).not.toContain('using their name or "they"');
+  });
 });

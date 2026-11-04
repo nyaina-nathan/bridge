@@ -583,7 +583,7 @@ paths:
                   summary: Summary and partner view drafted
                   value:
                     summary: I felt overwhelmed when...
-                    partnerView: She had a long day and the dishes felt like one more thing...
+                    partnerView: I had a long day, and the dishes felt like one more thing...
                     feelings: null
                     approvedAt: null
                     feelingsSharedAt: null
@@ -762,7 +762,7 @@ paths:
                   summary: Partner view available, feelings not shared yet
                   value:
                     available: true
-                    partnerView: He had a long day and...
+                    partnerView: I had a long day, and the dishes felt like one more thing...
                     approvedAt: '2026-10-31T10:18:00Z'
                     feelings: null
                     feelingsSharedAt: null
@@ -770,7 +770,7 @@ paths:
                   summary: Partner view and feelings available
                   value:
                     available: true
-                    partnerView: He had a long day and...
+                    partnerView: I had a long day, and the dishes felt like one more thing...
                     approvedAt: '2026-10-31T10:18:00Z'
                     feelings: I did not realize how exhausted he was.
                     feelingsSharedAt: '2026-10-31T10:32:00Z'

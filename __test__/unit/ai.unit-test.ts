@@ -11,6 +11,7 @@ import {
 import {
   isRateLimitError,
   parseJsonReply,
+  readModelText,
   rethrowModelError,
 } from "@/lib/ai/structured";
 import {
@@ -41,11 +42,36 @@ const replyPayload = {
   safetyFlag: false,
 };
 
-function mockModelText(text: string) {
-  const getText = vi.fn().mockResolvedValue(text);
-  callModel.mockReturnValue({ getText });
+function mockModelResponse({
+  text,
+  status = "completed",
+  incompleteDetails = null,
+  output,
+}: {
+  text?: string;
+  status?: string;
+  incompleteDetails?: { reason?: string } | null;
+  output?: Array<{
+    type?: string;
+    content?: string | Array<{ type?: string; text?: string }> | null;
+  }>;
+} = {}) {
+  const getResponse = vi.fn().mockResolvedValue({
+    status,
+    incompleteDetails,
+    output:
+      output ??
+      (text === undefined
+        ? []
+        : [{ type: "message", content: [{ type: "output_text", text }] }]),
+  });
+  callModel.mockReturnValue({ getResponse });
 
-  return getText;
+  return getResponse;
+}
+
+function mockModelText(text: string) {
+  return mockModelResponse({ text });
 }
 
 beforeEach(() => {
@@ -107,6 +133,23 @@ describe("lib/ai/structured parseJsonReply", () => {
     }
   });
 
+  it("rejects an empty reply before attempting repair", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      parseJsonReply("   ", schema, "test");
+      throw new Error("expected parseJsonReply to throw");
+    } catch (error) {
+      expect((error as ApiError).code).toBe("INTERNAL_ERROR");
+    }
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[test] model reply was empty",
+      expect.any(Error),
+    );
+    errorSpy.mockRestore();
+  });
+
   it("rejects JSON that does not match the schema", () => {
     try {
       parseJsonReply('{"name":"Ada","count":"two"}', schema, "test");
@@ -128,6 +171,64 @@ describe("lib/ai/structured parseJsonReply", () => {
     expect(errorSpy).toHaveBeenCalledWith(
       "[test] model reply did not match the schema",
       expect.any(Array),
+    );
+    errorSpy.mockRestore();
+  });
+});
+
+describe("lib/ai/structured readModelText", () => {
+  it("concatenates output_text parts from the message", async () => {
+    const getResponse = mockModelResponse({
+      output: [
+        { type: "reasoning" },
+        {
+          type: "message",
+          content: [
+            { type: "output_text", text: '{"name":' },
+            { type: "output_text", text: '"Ada"}' },
+          ],
+        },
+      ],
+    });
+
+    await expect(readModelText({ getResponse }, "test")).resolves.toBe(
+      '{"name":"Ada"}',
+    );
+  });
+
+  it("falls back to the pre-concatenated outputText", async () => {
+    const getResponse = vi.fn().mockResolvedValue({
+      status: "completed",
+      outputText: '{"name":"Ada"}',
+      output: [],
+    });
+
+    await expect(readModelText({ getResponse }, "test")).resolves.toBe(
+      '{"name":"Ada"}',
+    );
+  });
+
+  it("explains an incomplete reasoning-only reply", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const getResponse = mockModelResponse({
+      status: "incomplete",
+      incompleteDetails: { reason: "max_output_tokens" },
+      output: [{ type: "reasoning" }],
+    });
+
+    try {
+      await readModelText({ getResponse }, "partner-view");
+      throw new Error("expected readModelText to throw");
+    } catch (error) {
+      expect((error as ApiError).code).toBe("INTERNAL_ERROR");
+      expect(((error as ApiError).cause as Error).message).toContain(
+        "max_output_tokens",
+      );
+    }
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[partner-view] model returned no text",
+      expect.objectContaining({ reason: "max_output_tokens" }),
     );
     errorSpy.mockRestore();
   });
@@ -204,7 +305,8 @@ describe("lib/ai/mediator completeMediatorTurn", () => {
     expect(callModel).toHaveBeenCalledWith({
       model: "test-model",
       instructions: expect.stringContaining("private conversation with Ada"),
-      maxOutputTokens: 1000,
+      maxOutputTokens: 2000,
+      reasoning: { enabled: false },
       input: [
         { role: "user", content: "Earlier" },
         { role: "assistant", content: "Earlier reply" },
@@ -231,8 +333,8 @@ describe("lib/ai/mediator completeMediatorTurn", () => {
   });
 
   it("maps model rate limits", async () => {
-    const getText = vi.fn().mockRejectedValue({ statusCode: 429 });
-    callModel.mockReturnValue({ getText });
+    const getResponse = vi.fn().mockRejectedValue({ statusCode: 429 });
+    callModel.mockReturnValue({ getResponse });
 
     try {
       await completeMediatorTurn({
@@ -288,10 +390,15 @@ describe("lib/ai/summarizer", () => {
     expect(callModel).toHaveBeenCalledWith({
       model: "test-model",
       instructions: expect.stringContaining("summary of Ada"),
-      maxOutputTokens: 1000,
+      maxOutputTokens: 2000,
+      reasoning: { enabled: false },
       input: [
         { role: "user", content: "She ignored me" },
         { role: "assistant", content: "That sounds lonely" },
+        {
+          role: "user",
+          content: expect.stringContaining("Now write my summary"),
+        },
       ],
       text: {
         format: {
@@ -305,9 +412,27 @@ describe("lib/ai/summarizer", () => {
     expect(result).toEqual({ summary: "I felt alone." });
   });
 
+  it("always ends the model input with a user turn", async () => {
+    mockModelText(JSON.stringify({ summary: "I felt alone." }));
+
+    await summarizeThread({
+      participantName: "Ada",
+      history: [
+        { role: "user", content: "She ignored me" },
+        { role: "assistant", content: "That sounds lonely" },
+      ],
+    });
+
+    const request = callModel.mock.calls.at(-1)?.[0] as {
+      input: Array<{ role: string; content: string }>;
+    };
+
+    expect(request.input.at(-1)?.role).toBe("user");
+  });
+
   it("maps rate limits", async () => {
     callModel.mockReturnValue({
-      getText: vi.fn().mockRejectedValue({ statusCode: 429 }),
+      getResponse: vi.fn().mockRejectedValue({ statusCode: 429 }),
     });
 
     try {
@@ -341,7 +466,8 @@ describe("lib/ai/partner-view", () => {
     expect(callModel).toHaveBeenCalledWith({
       model: "test-model",
       instructions: expect.stringContaining("You rewrite Ada's private"),
-      maxOutputTokens: 1000,
+      maxOutputTokens: 2000,
+      reasoning: { enabled: false },
       input: [{ role: "user", content: "I felt alone." }],
       text: {
         format: {

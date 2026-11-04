@@ -3,7 +3,7 @@ import { z } from "zod";
 import { buildSummarySystemPrompt } from "../prompts/summary.prompts";
 import type { MessageRole } from "../types/message.types";
 import { getMessageModel, getOpenRouterClient } from "./openrouter";
-import { parseJsonReply, rethrowModelError } from "./structured";
+import { parseJsonReply, readModelText, rethrowModelError } from "./structured";
 
 export const summaryOutputSchema = z.object({
   summary: z.string().trim().min(1),
@@ -37,8 +37,19 @@ type SummaryTurn = {
   history: SummaryHistoryMessage[];
 };
 
-/** Output cap for one summary, as agreed with the product team. */
-const MAX_OUTPUT_TOKENS = 1000;
+/**
+ * Output cap for one summary. Reasoning tokens count toward this cap, so leave
+ * headroom even though reasoning is disabled below.
+ */
+const MAX_OUTPUT_TOKENS = 2000;
+
+/**
+ * The stored thread always ends with the mediator's reply. Anthropic-backed
+ * providers treat a trailing assistant message as prefill and reject it, so the
+ * summary request closes with an explicit user instruction instead.
+ */
+const SUMMARY_REQUEST =
+  "Now write my summary from the conversation above. Follow the system instructions and return only the JSON object. This line is an instruction, not part of my story.";
 
 /**
  * Drafts the participant's summary from their private thread with the mediator.
@@ -52,10 +63,16 @@ export async function summarizeThread({
     model: getMessageModel(),
     instructions: buildSummarySystemPrompt({ participantName }),
     maxOutputTokens: MAX_OUTPUT_TOKENS,
-    input: history.map((message) => ({
-      role: message.role,
-      content: message.content,
-    })),
+    // Summarising is a constrained rewrite; reasoning would only risk spending
+    // the output budget before the JSON reply is emitted.
+    reasoning: { enabled: false },
+    input: [
+      ...history.map((message) => ({
+        role: message.role,
+        content: message.content,
+      })),
+      { role: "user" as const, content: SUMMARY_REQUEST },
+    ],
     text: {
       format: {
         type: "json_schema",
@@ -68,7 +85,7 @@ export async function summarizeThread({
 
   try {
     return parseJsonReply(
-      await result.getText(),
+      await readModelText(result, "summary"),
       summaryOutputSchema,
       "summary",
     );
