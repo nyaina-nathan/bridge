@@ -17,6 +17,8 @@ import type {
   ShareFeelingsResponse,
 } from "@/lib/types/perspective.types";
 
+import { CloseConflictButton } from "./close-conflict-button";
+
 type ConflictFeedbackProps = {
   conflictId: string;
   partnerPerspective: PartnerPerspective;
@@ -335,6 +337,10 @@ export function ConflictFeedback({
               </div>
             </form>
           )}
+        </div>
+
+        <div className="mt-6 border-t border-line pt-6">
+          <CloseConflictButton conflictId={conflictId} />
         </div>
       </div>
     </section>
