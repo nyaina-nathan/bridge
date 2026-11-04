@@ -11,10 +11,16 @@ import { getServerAuthContext } from "@/lib/api/auth";
 import { isApiError } from "@/lib/api/errors";
 import { getConflictDetail } from "@/lib/services/conflict.service";
 import { listMessages } from "@/lib/services/message.service";
-import { getPerspective } from "@/lib/services/perspective.service";
+import {
+  getPartnerPerspective,
+  getPerspective,
+} from "@/lib/services/perspective.service";
 import type { ConflictDetail } from "@/lib/types/conflict.types";
 import type { MessageList } from "@/lib/types/message.types";
-import type { Perspective } from "@/lib/types/perspective.types";
+import type {
+  PartnerPerspective,
+  Perspective,
+} from "@/lib/types/perspective.types";
 
 type ConflictPageProps = {
   params: Promise<{ conflictId: string }>;
@@ -65,17 +71,25 @@ export default async function ConflictPage({ params }: ConflictPageProps) {
   let conflict: ConflictDetail;
   let messages: MessageList;
   let perspective: Perspective;
+  let partnerPerspective: PartnerPerspective;
 
   try {
-    const [conflictDetail, messageList, myPerspective] = await Promise.all([
+    const [
+      conflictDetail,
+      messageList,
+      myPerspective,
+      partnerPerspectiveResult,
+    ] = await Promise.all([
       loadConflict(conflictId, auth.coupleId, auth.userId),
       listMessages(conflictId, auth.coupleId, auth.userId),
       getPerspective(conflictId, auth.coupleId, auth.userId),
+      getPartnerPerspective(conflictId, auth.coupleId, auth.userId),
     ]);
 
     conflict = conflictDetail;
     messages = messageList;
     perspective = myPerspective;
+    partnerPerspective = partnerPerspectiveResult;
   } catch (error) {
     if (isApiError(error) && error.code === "CONFLICT_NOT_FOUND") {
       notFound();
@@ -122,6 +136,9 @@ export default async function ConflictPage({ params }: ConflictPageProps) {
           initialSummary={perspective.summary?.trim() || null}
           initialPartnerView={perspective.partnerView?.trim() || null}
           initialApprovedAt={perspective.approvedAt}
+          initialPartnerPerspective={partnerPerspective}
+          initialFeelings={perspective.feelings}
+          initialFeelingsSharedAt={perspective.feelingsSharedAt}
         />
       </div>
     </Container>

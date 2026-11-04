@@ -1,11 +1,13 @@
-import { CheckIcon, ClockIcon } from "@/app/_components/icons";
+import { CheckIcon } from "@/app/_components/icons";
 import type {
   ConflictDetail,
   ConflictOutcome,
 } from "@/lib/types/conflict.types";
 import type { Message } from "@/lib/types/message.types";
+import type { PartnerPerspective } from "@/lib/types/perspective.types";
 
 import { ConflictChat } from "./conflict-chat";
+import { ConflictFeedback } from "./conflict-feedback";
 
 const outcomeLabels: Record<ConflictOutcome, string> = {
   resolved: "Resolved",
@@ -17,8 +19,13 @@ type ConflictWorkspaceProps = {
   conflict: ConflictDetail;
   initialMessages: Message[];
   initialSummary: string | null;
+  /** The caller's own reframed view — what their partner will read. */
   initialPartnerView: string | null;
   initialApprovedAt: string | null;
+  /** The partner's approved view and feelings — what they chose to share. */
+  initialPartnerPerspective: PartnerPerspective;
+  initialFeelings: string | null;
+  initialFeelingsSharedAt: string | null;
 };
 
 export function ConflictWorkspace({
@@ -27,6 +34,9 @@ export function ConflictWorkspace({
   initialSummary,
   initialPartnerView,
   initialApprovedAt,
+  initialPartnerPerspective,
+  initialFeelings,
+  initialFeelingsSharedAt,
 }: ConflictWorkspaceProps) {
   if (conflict.status === "collecting") {
     return (
@@ -40,12 +50,20 @@ export function ConflictWorkspace({
     );
   }
 
-  const isClosed = conflict.status === "closed";
-  const title = isClosed
-    ? conflict.outcome
-      ? outcomeLabels[conflict.outcome]
-      : "Closed"
-    : "Hear each other";
+  if (conflict.status === "feedback") {
+    return (
+      <ConflictFeedback
+        conflictId={conflict.id}
+        partnerPerspective={initialPartnerPerspective}
+        initialFeelings={initialFeelings}
+        initialFeelingsSharedAt={initialFeelingsSharedAt}
+      />
+    );
+  }
+
+  const title = conflict.outcome
+    ? outcomeLabels[conflict.outcome]
+    : "Closed";
 
   return (
     <section
@@ -53,14 +71,10 @@ export function ConflictWorkspace({
       className="mt-8 rounded-[2rem] border border-line bg-paper px-6 py-12 text-center shadow-card sm:px-10"
     >
       <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-sage-soft text-sage">
-        {isClosed ? (
-          <CheckIcon className="size-5" />
-        ) : (
-          <ClockIcon className="size-5" />
-        )}
+        <CheckIcon className="size-5" />
       </span>
       <p className="mt-5 text-[11px] font-semibold uppercase tracking-[0.16em] text-sage">
-        {isClosed ? "Closed" : "Next stage"}
+        Closed
       </p>
       <h2
         id="stage-heading"
@@ -69,9 +83,8 @@ export function ConflictWorkspace({
         {title}
       </h2>
       <p className="mx-auto mt-3 max-w-md text-pretty text-sm leading-6 text-muted">
-        {isClosed
-          ? "This loop is closed. Nothing else needs doing here — you can start a new conflict whenever something comes up again."
-          : "You’ve both shared what you needed to. Reading each other’s approved views and sharing how they landed is the next part of Bridge, and it isn’t open here yet."}
+        This loop is closed. Nothing else needs doing here — you can start a new
+        conflict whenever something comes up again.
       </p>
     </section>
   );
