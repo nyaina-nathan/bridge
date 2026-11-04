@@ -17,12 +17,16 @@ type ConflictWorkspaceProps = {
   conflict: ConflictDetail;
   initialMessages: Message[];
   initialSummary: string | null;
+  initialPartnerView: string | null;
+  initialApprovedAt: string | null;
 };
 
 export function ConflictWorkspace({
   conflict,
   initialMessages,
   initialSummary,
+  initialPartnerView,
+  initialApprovedAt,
 }: ConflictWorkspaceProps) {
   if (conflict.status === "collecting") {
     return (
@@ -30,6 +34,8 @@ export function ConflictWorkspace({
         conflictId={conflict.id}
         initialMessages={initialMessages}
         initialSummary={initialSummary}
+        initialPartnerView={initialPartnerView}
+        initialApprovedAt={initialApprovedAt}
       />
     );
   }

@@ -29,6 +29,8 @@ type ConflictChatProps = {
   conflictId: string;
   initialMessages: Message[];
   initialSummary: string | null;
+  initialPartnerView: string | null;
+  initialApprovedAt: string | null;
 };
 
 const WORD_STAGGER_MS = 24;
@@ -125,6 +127,8 @@ export function ConflictChat({
   conflictId,
   initialMessages,
   initialSummary,
+  initialPartnerView,
+  initialApprovedAt,
 }: ConflictChatProps) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -301,7 +305,12 @@ export function ConflictChat({
 
   if (summary !== null) {
     return (
-      <ConflictSummary conflictId={conflictId} initialSummary={summary} />
+      <ConflictSummary
+        conflictId={conflictId}
+        initialSummary={summary}
+        initialPartnerView={initialPartnerView}
+        initialApprovedAt={initialApprovedAt}
+      />
     );
   }
 

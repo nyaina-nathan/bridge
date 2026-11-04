@@ -2,7 +2,11 @@ import { z } from "zod";
 
 import { buildPartnerViewSystemPrompt } from "../prompts/partner-view.prompts";
 import { getMessageModel, getOpenRouterClient } from "./openrouter";
-import { parseJsonReply, rethrowModelError } from "./structured";
+import {
+  parseJsonReply,
+  readModelText,
+  rethrowModelError,
+} from "./structured";
 
 export const partnerViewOutputSchema = z.object({
   partnerView: z.string().trim().min(1),
@@ -21,7 +25,7 @@ const partnerViewJsonSchema = {
   properties: {
     partnerView: {
       type: "string",
-      description: "The calm third-person account for the partner.",
+      description: "The calm first-person message for the partner.",
     },
   },
 } as const;
@@ -31,12 +35,16 @@ type PartnerViewTurn = {
   summary: string;
 };
 
-/** Output cap for one partner view, as agreed with the product team. */
-const MAX_OUTPUT_TOKENS = 1000;
+/**
+ * Output cap for one partner view. Reasoning tokens count toward this cap, so
+ * leave headroom even though reasoning is disabled below.
+ */
+const MAX_OUTPUT_TOKENS = 2000;
 
 /**
- * Reframes the participant's own summary for their partner. The existing
- * partner view and approval are only replaced after a successful generation.
+ * Reframes the participant's own summary into the message their partner reads,
+ * keeping the participant's first-person voice. The existing partner view and
+ * approval are only replaced after a successful generation.
  */
 export async function rewriteForPartner({
   participantName,
@@ -46,6 +54,9 @@ export async function rewriteForPartner({
     model: getMessageModel(),
     instructions: buildPartnerViewSystemPrompt({ participantName }),
     maxOutputTokens: MAX_OUTPUT_TOKENS,
+    // Rewriting a summary needs no chain-of-thought, and reasoning tokens would
+    // otherwise consume the output budget before any JSON is produced.
+    reasoning: { enabled: false },
     input: [{ role: "user" as const, content: summary }],
     text: {
       format: {
@@ -59,7 +70,7 @@ export async function rewriteForPartner({
 
   try {
     return parseJsonReply(
-      await result.getText(),
+      await readModelText(result, "partner-view"),
       partnerViewOutputSchema,
       "partner-view",
     );

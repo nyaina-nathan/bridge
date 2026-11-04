@@ -14,6 +14,7 @@ import { listMessages } from "@/lib/services/message.service";
 import { getPerspective } from "@/lib/services/perspective.service";
 import type { ConflictDetail } from "@/lib/types/conflict.types";
 import type { MessageList } from "@/lib/types/message.types";
+import type { Perspective } from "@/lib/types/perspective.types";
 
 type ConflictPageProps = {
   params: Promise<{ conflictId: string }>;
@@ -63,10 +64,10 @@ export default async function ConflictPage({ params }: ConflictPageProps) {
 
   let conflict: ConflictDetail;
   let messages: MessageList;
-  let summary: string | null;
+  let perspective: Perspective;
 
   try {
-    const [conflictDetail, messageList, perspective] = await Promise.all([
+    const [conflictDetail, messageList, myPerspective] = await Promise.all([
       loadConflict(conflictId, auth.coupleId, auth.userId),
       listMessages(conflictId, auth.coupleId, auth.userId),
       getPerspective(conflictId, auth.coupleId, auth.userId),
@@ -74,7 +75,7 @@ export default async function ConflictPage({ params }: ConflictPageProps) {
 
     conflict = conflictDetail;
     messages = messageList;
-    summary = perspective.summary?.trim() || null;
+    perspective = myPerspective;
   } catch (error) {
     if (isApiError(error) && error.code === "CONFLICT_NOT_FOUND") {
       notFound();
@@ -118,7 +119,9 @@ export default async function ConflictPage({ params }: ConflictPageProps) {
         <ConflictWorkspace
           conflict={conflict}
           initialMessages={messages.items}
-          initialSummary={summary}
+          initialSummary={perspective.summary?.trim() || null}
+          initialPartnerView={perspective.partnerView?.trim() || null}
+          initialApprovedAt={perspective.approvedAt}
         />
       </div>
     </Container>
