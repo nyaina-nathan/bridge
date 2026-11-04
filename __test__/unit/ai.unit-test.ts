@@ -292,6 +292,10 @@ describe("lib/ai/summarizer", () => {
       input: [
         { role: "user", content: "She ignored me" },
         { role: "assistant", content: "That sounds lonely" },
+        {
+          role: "user",
+          content: expect.stringContaining("Now write my summary"),
+        },
       ],
       text: {
         format: {
@@ -303,6 +307,24 @@ describe("lib/ai/summarizer", () => {
       },
     });
     expect(result).toEqual({ summary: "I felt alone." });
+  });
+
+  it("always ends the model input with a user turn", async () => {
+    mockModelText(JSON.stringify({ summary: "I felt alone." }));
+
+    await summarizeThread({
+      participantName: "Ada",
+      history: [
+        { role: "user", content: "She ignored me" },
+        { role: "assistant", content: "That sounds lonely" },
+      ],
+    });
+
+    const request = callModel.mock.calls.at(-1)?.[0] as {
+      input: Array<{ role: string; content: string }>;
+    };
+
+    expect(request.input.at(-1)?.role).toBe("user");
   });
 
   it("maps rate limits", async () => {
