@@ -8,9 +8,13 @@ import type {
   PartnerPerspective,
   PartnerViewResponse,
   Perspective,
+  ShareFeelingsResponse,
   SummaryResponse,
 } from "../types/perspective.types";
-import type { UpdatePerspectiveInput } from "../validators/perspective.validators";
+import type {
+  ShareFeelingsInput,
+  UpdatePerspectiveInput,
+} from "../validators/perspective.validators";
 import { isValidConflictId } from "../validators/conflict.validators";
 
 const perspectiveSelect = {
@@ -563,4 +567,62 @@ export async function getPartnerPerspective(
     feelings: null,
     feelingsSharedAt: null,
   };
+}
+
+/**
+ * Shares or updates how the caller feels after reading the partner's view.
+ * Feelings are only writable while the conflict is open for feedback.
+ */
+export async function shareFeelings(
+  conflictId: string,
+  coupleId: string,
+  userId: string,
+  input: ShareFeelingsInput,
+): Promise<ShareFeelingsResponse> {
+  if (!isValidConflictId(conflictId)) {
+    throw ApiError.notFound();
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<Array<{ status: string }>>`
+      SELECT status
+      FROM conflicts
+      WHERE id = ${conflictId}::uuid
+        AND couple_id = ${coupleId}::uuid
+      FOR UPDATE
+    `;
+
+    if (locked.length === 0) {
+      throw ApiError.notFound();
+    }
+
+    if (locked[0].status !== "feedback") {
+      throw ApiError.conflict(
+        "INVALID_STATE_TRANSITION",
+        "Feelings can only be shared while status is feedback",
+      );
+    }
+
+    const feelingsSharedAt = new Date();
+
+    const { count } = await tx.perspectives.updateMany({
+      where: {
+        conflict_id: conflictId,
+        user_id: userId,
+      },
+      data: {
+        feelings: input.feelings,
+        feelings_shared_at: feelingsSharedAt,
+      },
+    });
+
+    if (count === 0) {
+      throw ApiError.notFound();
+    }
+
+    return {
+      feelings: input.feelings,
+      feelingsSharedAt: feelingsSharedAt.toISOString(),
+    };
+  });
 }

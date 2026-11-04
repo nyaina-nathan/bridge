@@ -39,3 +39,9 @@ export type PartnerPerspectiveAvailable = {
 export type PartnerPerspective =
   | PartnerPerspectiveUnavailable
   | PartnerPerspectiveAvailable;
+
+/** Body returned by `POST /conflicts/{id}/perspective/feelings`. */
+export type ShareFeelingsResponse = {
+  feelings: string;
+  feelingsSharedAt: string;
+};
