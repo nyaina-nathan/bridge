@@ -10,8 +10,13 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["__test__/**/*.unit-test.ts"],
+    include: [
+      "__test__/**/*.unit-test.ts",
+      "__test__/**/*.integration-test.ts",
+    ],
+    hookTimeout: 180_000,
     mockReset: true,
+    testTimeout: 30_000,
     unstubEnvs: true,
     unstubGlobals: true,
   },
