@@ -16,17 +16,20 @@ const outcomeLabels: Record<ConflictOutcome, string> = {
 type ConflictWorkspaceProps = {
   conflict: ConflictDetail;
   initialMessages: Message[];
+  initialSummary: string | null;
 };
 
 export function ConflictWorkspace({
   conflict,
   initialMessages,
+  initialSummary,
 }: ConflictWorkspaceProps) {
   if (conflict.status === "collecting") {
     return (
       <ConflictChat
         conflictId={conflict.id}
         initialMessages={initialMessages}
+        initialSummary={initialSummary}
       />
     );
   }

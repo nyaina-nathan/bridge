@@ -51,21 +51,18 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
-/**
- * Posts JSON to a same-origin API route and returns the parsed body.
- *
- * @example
- * await postJson<AuthSession>("/api/auth/login", { email, password });
- */
-export async function postJson<T>(
+type JsonMethod = "POST" | "PUT";
+
+async function sendJson<T>(
   path: string,
+  method: JsonMethod,
   body: unknown,
 ): Promise<T> {
   let response: Response;
 
   try {
     response = await fetch(path, {
-      method: "POST",
+      method,
       headers: {
         "Content-Type": "application/json",
       },
@@ -94,4 +91,24 @@ export async function postJson<T>(
   }
 
   return payload as T;
+}
+
+/**
+ * Posts JSON to a same-origin API route and returns the parsed body.
+ *
+ * @example
+ * await postJson<AuthSession>("/api/auth/login", { email, password });
+ */
+export function postJson<T>(path: string, body: unknown): Promise<T> {
+  return sendJson(path, "POST", body);
+}
+
+/**
+ * Sends a JSON PUT to a same-origin API route and returns the parsed body.
+ *
+ * @example
+ * await putJson<Perspective>(`/api/conflicts/${id}/perspective`, { summary });
+ */
+export function putJson<T>(path: string, body: unknown): Promise<T> {
+  return sendJson(path, "PUT", body);
 }
