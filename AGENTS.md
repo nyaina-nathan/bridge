@@ -10,7 +10,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # Bridge
 
-Bridge is a private, consent-first conflict mediator for couples. Each partner has a private AI-mediated thread, then explicitly approves what the other can see. The product is an MVP: auth, conflicts, and the private mediator chat work; the perspective/feelings/consent-gate endpoints in `docs/api/openapi.yml` are specified but not implemented yet.
+Bridge is a private, consent-first conflict mediator for couples. Each partner has a private AI-mediated thread, then explicitly approves what the other can see. The product is an MVP: auth, conflicts, the private mediator chat, perspectives (summary, partner view, approval), and feelings sharing are implemented. Some items in `docs/api/openapi.yml`, such as the v2 features listed there, are still unbuilt.
 
 ## Commands
 
@@ -69,19 +69,19 @@ app/
   layout.tsx              fonts, metadata, root shell
 proxy.ts                  auth guard + access-token refresh
 lib/
-  ai/                     OpenRouter client and mediator turn
+  ai/                     OpenRouter client, mediator turn, summarizer, partner-view rewrite
   api/                    route wrapper, auth guards, ApiError, cookies, browser client
   auth/                   JWT signing/verification
   db/prisma.ts            shared Prisma client with pg adapter
   prompts/                system prompts
-  services/               business logic and all Prisma queries
+  services/               business logic and all Prisma queries (auth, conflict, message, perspective)
   types/                  API-facing camelCase types
   validators/             Zod schemas + request parsers
 prisma/
   schema.prisma           database models
   generated/              committed Prisma client; never edit by hand
 docs/
-  api/openapi.yml         canonical API contract (ahead of implementation)
+  api/openapi.yml         canonical API contract (may lead the implementation for v2 items)
   db/V1__table_init.sql   canonical schema, constraints, and v2 notes
 prisma7.config.ts         Prisma 7 CLI config (schema, migrations, datasource)
 next.config.ts            Turbopack CSS rule, Cache Components, SDK externalization
@@ -153,6 +153,10 @@ These are product invariants, not optional checks:
 - A user cannot create a conflict until the couple has two members.
 - Messages are accepted only while the conflict status is `collecting`.
 - `perspectives.approved_at` and `perspectives.feelings_shared_at` are the consent gates for partner-visible content.
+- Editing or regenerating a summary clears `perspectives.partner_view` and `approved_at`. A partner view must exist before it can be approved.
+- `GET /conflicts/:id/partner-perspective` returns only the partner's approved partner view and, once shared, their feelings. It never returns their summary or private messages, and it is unavailable until the conflict is `feedback` or `closed`.
+- The conflict moves to `feedback` only after both partners approve. Approval locks the conflict row so simultaneous approvals serialize.
+- Feelings can only be written while the conflict status is `feedback`.
 - Safety-flagged model replies set `conflicts.flagged`; preserve the safety notice behavior in `lib/services/message.service.ts`.
 
 ## Conventions
